@@ -70,6 +70,15 @@ class Calendar:
                 month.append(event)
         return sorted(month, key=lambda x: x.date.format())
 
+    def getOvertime(self, focus="work"):
+        lastweekend = Time.weekstart().shift(minutes=-1)
+        try:
+            if self.events[lastweekend.format()].type == focus and self.events[lastweekend.format()].comment == "Wochenübertrag":
+                return self.events[lastweekend.format()].duration
+            return 0
+        except KeyError:
+            return 0
+
     def getDay(self):
         day = Time.today().format().split(" ")[0]
         evts = []
@@ -100,13 +109,7 @@ class Calendar:
                 focus = self.current.type
         weekminutes = 0
 
-        overtime = Time.weekstart().shift(minutes=-1)
-        try:
-            evt = self.events[overtime.format()]
-            if evt.type == focus and evt.comment == "Wochenübertrag":
-                weekminutes -= evt.duration
-        except KeyError:
-            pass
+        weekminutes -= self.getOvertime()
 
         for event in self.getWeek():
             if event.type == focus:
@@ -217,6 +220,7 @@ class Calendar:
         month = self.getMonth()
         weeksums = {k: sum([x.duration for x in week if x.type == k]) for k in self.categories}
         monthsums = {k: sum([x.duration for x in month if x.type == k]) for k in self.categories}
+        weeksums["work"] -= self.getOvertime()
         print("WEEK ------------")
         for k, v in weeksums.items():
             v = f"{v//60:02d}:{v%60:02d}"
@@ -297,6 +301,7 @@ class Calendar:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("file")
+    parser.add_argument("--shift", help="format: 'days=-3', 'weeks=5', ...")
     modegroup = parser.add_mutually_exclusive_group()
     modegroup.add_argument("--toggle", '-t')
     modegroup.add_argument("--bar", '-b', action='store_true')
@@ -305,6 +310,9 @@ if __name__ == "__main__":
     modegroup.add_argument("--edit", "-e", action="store_true")
     modegroup.add_argument("--overtime", "-o", action="store_true")
     args = parser.parse_args()
+
+    if args.shift:
+        Time.timeshift = {i[0]: int(i[1]) for i in [j.split("=") for j in args.shift.split(",")]}
 
     cal = Calendar(args.file)
     

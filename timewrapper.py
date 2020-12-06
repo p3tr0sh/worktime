@@ -15,8 +15,13 @@ def monthstart():
 
 class Time:
 
-    def __init__(self, time):
-        self.time = time
+    timeshift = dict()
+
+    def __init__(self, time, shift=True):
+        if shift:
+            self.time = time.shift(**Time.timeshift)
+        else:
+            self.time = time
 
     def format(self, options=""):
         if options == "weekday":
@@ -32,11 +37,12 @@ class Time:
         return self.time > item
 
     def shift(self, **kwargs):
-        return Time(self.time.shift(**kwargs))
+        self.time = self.time.shift(**kwargs)
+        return self
 
     @staticmethod
     def parse(time, *args, **kwargs):
-        return Time(arrow.get(time, *args, **kwargs))
+        return Time(arrow.get(time, *args, **kwargs), shift=False)
 
     @staticmethod
     def now():
