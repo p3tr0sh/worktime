@@ -30,6 +30,12 @@ class Time:
             return self.time.format(fmt="D.MM.")
         return self.time.format(fmt="YYYY-MM-DD HH:mm")
 
+    def __le__(self, item):
+        return self.time <= item
+
+    def __ge__(self, item):
+        return self.time >= item
+
     def __lt__(self, item):
         return self.time < item
 
@@ -39,6 +45,9 @@ class Time:
     def shift(self, **kwargs):
         self.time = self.time.shift(**kwargs)
         return self
+
+    def replace(self, **kwargs):
+        return Time(self.time.replace(**kwargs), shift=False)
 
     @staticmethod
     def parse(time, *args, **kwargs):

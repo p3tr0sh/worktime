@@ -57,7 +57,7 @@ class Calendar:
         weekend   = Time.weekend()
         week = []
         for event in self.events.values():
-            if event.date > weekstart and event.date < weekend:
+            if event.date >= weekstart and event.date <= weekend:
                 week.append(event)
         return sorted(week, key=lambda x: x.date.format())
     
@@ -88,13 +88,32 @@ class Calendar:
         return evts
 
     def toggle(self, option):
+        last_parameter = option.split(" ")[-1]
         if not self.current:
             x = Time.now()
+            if ":" in last_parameter:
+                last_parameter = [int(i) for i in last_parameter.split(":")]
+                x = Time.today().replace(hour=last_parameter[0], minute=last_parameter[1])
+                option = " ".join(option.split(" ")[:-1])
             self.current = Event(x.format(), option)
             if option == "work":
                 subprocess.run("~/bin/wallpapermanager -s", shell=True)
+            if option not in self.categories:
+                self.categories.append(option)
         else:
             self.current.duration = Time.delta(self.current.date, Time.now())
+            if len(option.split(" ")) > 1:
+                try:
+                    self.current.duration = int(last_parameter)
+                except ValueError:
+                    if last_parameter[0] == "-":
+                        last_parameter = [int(d) for d in last_parameter[1:].split(":")]
+                        last_parameter = Time.delta(self.current.date, self.current.date.replace(hour=last_parameter[0], minute=last_parameter[1]))
+                    elif ":" in last_parameter:
+                        last_parameter = last_parameter.split(":")
+                        last_parameter = int(last_parameter[0]) * 60 + int(last_parameter[1])
+                    self.current.duration = ceil(last_parameter/5)*5
+                option = " ".join(option.split(" ")[:-1])
             self.current.comment = option
             self.events[self.current.date.format()] = self.current
             if self.current.type == "work":
@@ -109,7 +128,7 @@ class Calendar:
                 focus = self.current.type
         weekminutes = 0
 
-        weekminutes -= self.getOvertime()
+        weekminutes -= self.getOvertime(focus)
 
         for event in self.getWeek():
             if event.type == focus:
@@ -119,9 +138,7 @@ class Calendar:
 
         for event in self.getDay():
             if event.type == focus:
-                if event.comment == "Wochenübertrag":
-                    weekminutes += event.duration
-                else:
+                if event.comment != "Wochenübertrag":
                     dayminutes += event.duration
         
         now = 0
@@ -145,13 +162,15 @@ class Calendar:
         width, height = get_terminal_size()
         height = 48
         daywidth = width // 7 if width%7 >= 3 else (width // 7) - 1
-        timewidth = width - 7 * daywidth
+        timewidth = width - 7 * daywidth + 1
         timecolumn = [f"{i//2:02d}:00" + " "*(timewidth-5) if (i/2)%3==0 else " "*timewidth for i in range(height)]
         matrix = [[f' |{"."*(daywidth-4)}| ' for x in range(7)] for y in range(height)]
         earliest = 47
         latest = 0
 
         for event in self.getWeek():
+            if event.comment == "Wochenübertrag":
+                continue
             time = event.date.format().split(" ")[1]
             ystart = int(time.split(":")[0]) * 2 + (int(time.split(":")[1]) > 30)
             earliest = min(ystart, earliest)
@@ -185,7 +204,7 @@ class Calendar:
         latest = ceil(latest/6)*6
 
         dates = [Time.weekstart().shift(days=x).format(options="dam") for x in range(7)]
-        print(" "*(timewidth), end="")
+        print(" "*timewidth, end="")
         for w, d in zip(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], dates):
             if daywidth >= 18:
                 header = f" {w} {d}"
@@ -197,6 +216,7 @@ class Calendar:
             if row < earliest or row > latest:
                 continue
             print(data[1], end="")
+            data[0][-1] = data[0][-1][:-1]
             for it in data[0]:
                 print(it, end="")
             print()
@@ -243,7 +263,7 @@ class Calendar:
             if not event.date.format().startswith(previousDay):
                 previousDay = event.date.format().split(' ')[0]
                 print()
-            print(f"{len(events) - number: 2d} {event}")
+            print(f"{len(events) - number:>2d} {event}")
 
         while True:
             selected = input("\nSelect> ")
@@ -261,9 +281,13 @@ class Calendar:
         if evt.date != oldDate:
             # delete old entry and set up new one
             del self.events[oldDate.format()]
+        if evt.date != -1:
             self.events[evt.date.format()] = evt
-        print(f"   {evt}")
+            print(f"   {evt}")
+        else:
+            print(f"   REMOVED event from {oldDate.format()}")
         self.listview()
+        self.write()
 
 
     def calculateOvertime(self):

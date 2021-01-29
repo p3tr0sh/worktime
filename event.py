@@ -24,7 +24,7 @@ class Event:
     def edit(self):
         while True:
             print(f"  {self.date.format():>15s} | {self.type:10s} {Time.reformat(self.duration)} | {self.comment}")
-            field = input("\nField (Date|Type|Period|Comment)> ").lower()
+            field = input("\nField (Date|Type|Period|Comment|Remove|Quit)> ").lower()
 
             if 'date'.startswith(field):
                 newDate = input("Date> ")
@@ -51,8 +51,11 @@ class Event:
                 self.type = input("Type> ")
             
             elif 'period'.startswith(field):
-                dur = input("Duration (minutes|H:mm)> ")
-                if ":" in dur:
+                dur = input("Duration (minutes|H:mm|-H:mm)> ")
+                if dur[0] == "-":
+                    dur = [int(d) for d in dur[1:].split(":")]
+                    dur = Time.delta(self.date, self.date.replace(hour=dur[0], minute=dur[1]))
+                elif ":" in dur:
                     dur = dur.split(":")
                     dur = int(dur[0]) * 60 + int(dur[1])
                 else:
@@ -61,11 +64,13 @@ class Event:
 
             elif 'comment'.startswith(field):
                 self.comment = input("Comment> ")
+
+            elif 'remove'.startswith(field):
+                self.date = -1
+                break
+
+            elif 'quit'.startswith(field) or 'exit'.startswith(field):
+                break
                 
-            else:
-                continue
-            
-            break
-            # print("Number not in range")
         return self
 
