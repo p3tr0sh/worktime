@@ -18,19 +18,22 @@ class Calendar:
 
     def __init__(self, filename):
         self.events = dict()
-        self.target = -1
+        self.target = dict()
         self.categories = [] # dict with color codes, random color to begin with, choose color
         self.current = False
 
         self.filename = filename
+        self.conffile = os.path.join(os.path.dirname(filename), "config.json")
 
         self.read()
 
     def read(self):
+        with open(self.conffile, 'r') as conffile:
+            config = json.load(conffile)
+            self.target = config['target']
+            self.categories = config['categories']
         with open(self.filename, 'r') as calfile:
             cal = json.load(calfile)
-            self.target = cal['target']
-            self.categories = cal['categories']
             self.current = cal['current']
             if self.current:
                 self.current = Event(self.current[0], self.current[1][0], duration=Time.delta(Time.parse(self.current[0]), Time.now()), comment='-- CURRENT SESSION --')
@@ -38,10 +41,14 @@ class Calendar:
                 self.events[date] = Event(date, *event)
     
     def write(self):
-        with open(self.filename, 'w') as calfile:
+        with open(self.conffile, 'w') as conffile:
             obj = dict()
             obj['target'] = self.target
             obj['categories'] = self.categories
+            json.dump(obj, conffile, indent=2, ensure_ascii=False)
+
+        with open(self.filename, 'w') as calfile:
+            obj = dict()
             if self.current:
                 obj['current'] = list(self.current.serialize().items())[0]
             else: 
@@ -94,36 +101,13 @@ class Calendar:
         return evts
 
     def toggle(self, option):
-        # last_parameter = option.split(" ")[-1]
         if not self.current:
             x = Time.now()
-            # if ":" in last_parameter:
-            #     last_parameter = [int(i) for i in last_parameter.split(":")]
-            #     x = Time.today().replace(hour=last_parameter[0], minute=last_parameter[1])
-            #     option = " ".join(option.split(" ")[:-1])
             self.current = Event(x.format(), option)
             if option not in self.categories:
                 self.categories.append(option)
         else:
             self.current.duration = Time.delta(self.current.date, Time.now())
-            # if len(option.split(" ")) > 1:
-                # manually_set = False
-                # try:
-                #     self.current.duration = int(last_parameter)
-                #     manually_set = True
-                # except ValueError:
-                #     if last_parameter[0] == "-":
-                #         last_parameter = [int(d) for d in last_parameter[1:].split(":")]
-                #         last_parameter = Time.delta(self.current.date, self.current.date.replace(hour=last_parameter[0], minute=last_parameter[1]))
-                #         manually_set = True
-                #     elif ":" in last_parameter:
-                #         last_parameter = last_parameter.split(":")
-                #         last_parameter = int(last_parameter[0]) * 60 + int(last_parameter[1])
-                #         manually_set = True
-                #     if manually_set:
-                #         self.current.duration = ceil(last_parameter/5)*5
-                # if manually_set:
-                #     option = " ".join(option.split(" ")[:-1])
             self.current.comment = option
             self.events[self.current.date.format()] = self.current
             self.current = False
