@@ -19,7 +19,7 @@ class Calendar:
     def __init__(self, filename):
         self.events = dict()
         self.target = -1
-        self.categories = []
+        self.categories = [] # dict with color codes, random color to begin with, choose color
         self.current = False
 
         self.filename = filename
@@ -33,7 +33,7 @@ class Calendar:
             self.categories = cal['categories']
             self.current = cal['current']
             if self.current:
-                self.current = Event(self.current[0], *self.current[1])
+                self.current = Event(self.current[0], self.current[1][0], duration=Time.delta(Time.parse(self.current[0]), Time.now()), comment='-- CURRENT SESSION --')
             for date, event in cal['events'].items():
                 self.events[date] = Event(date, *event)
     
@@ -52,22 +52,28 @@ class Calendar:
             json.dump(obj, calfile, indent=2, ensure_ascii=False)
         
 
-    def getWeek(self):
+    def getWeek(self, withCurrent=False):
         weekstart = Time.weekstart()
         weekend   = Time.weekend()
         week = []
         for event in self.events.values():
             if event.date >= weekstart and event.date <= weekend:
                 week.append(event)
+        if withCurrent and self.current:
+            if self.current.date >= weekstart and self.current.date <= weekend:
+                week.append(self.current)
         return sorted(week, key=lambda x: x.date.format())
     
-    def getMonth(self):
+    def getMonth(self, withCurrent=False):
         monthstart = Time.monthstart()
         monthend   = Time.monthend()
         month = []
         for event in self.events.values():
             if event.date > monthstart and event.date < monthend:
                 month.append(event)
+        if withCurrent and self.current:
+            if self.current.date >= monthstart and self.current.date <= monthend:
+                month.append(self.current)
         return sorted(month, key=lambda x: x.date.format())
 
     def getOvertime(self, focus="work"):
@@ -88,36 +94,38 @@ class Calendar:
         return evts
 
     def toggle(self, option):
-        last_parameter = option.split(" ")[-1]
+        # last_parameter = option.split(" ")[-1]
         if not self.current:
             x = Time.now()
-            if ":" in last_parameter:
-                last_parameter = [int(i) for i in last_parameter.split(":")]
-                x = Time.today().replace(hour=last_parameter[0], minute=last_parameter[1])
-                option = " ".join(option.split(" ")[:-1])
+            # if ":" in last_parameter:
+            #     last_parameter = [int(i) for i in last_parameter.split(":")]
+            #     x = Time.today().replace(hour=last_parameter[0], minute=last_parameter[1])
+            #     option = " ".join(option.split(" ")[:-1])
             self.current = Event(x.format(), option)
-            if option == "work":
-                subprocess.run("~/bin/wallpapermanager -s", shell=True)
             if option not in self.categories:
                 self.categories.append(option)
         else:
             self.current.duration = Time.delta(self.current.date, Time.now())
-            if len(option.split(" ")) > 1:
-                try:
-                    self.current.duration = int(last_parameter)
-                except ValueError:
-                    if last_parameter[0] == "-":
-                        last_parameter = [int(d) for d in last_parameter[1:].split(":")]
-                        last_parameter = Time.delta(self.current.date, self.current.date.replace(hour=last_parameter[0], minute=last_parameter[1]))
-                    elif ":" in last_parameter:
-                        last_parameter = last_parameter.split(":")
-                        last_parameter = int(last_parameter[0]) * 60 + int(last_parameter[1])
-                    self.current.duration = ceil(last_parameter/5)*5
-                option = " ".join(option.split(" ")[:-1])
+            # if len(option.split(" ")) > 1:
+                # manually_set = False
+                # try:
+                #     self.current.duration = int(last_parameter)
+                #     manually_set = True
+                # except ValueError:
+                #     if last_parameter[0] == "-":
+                #         last_parameter = [int(d) for d in last_parameter[1:].split(":")]
+                #         last_parameter = Time.delta(self.current.date, self.current.date.replace(hour=last_parameter[0], minute=last_parameter[1]))
+                #         manually_set = True
+                #     elif ":" in last_parameter:
+                #         last_parameter = last_parameter.split(":")
+                #         last_parameter = int(last_parameter[0]) * 60 + int(last_parameter[1])
+                #         manually_set = True
+                #     if manually_set:
+                #         self.current.duration = ceil(last_parameter/5)*5
+                # if manually_set:
+                #     option = " ".join(option.split(" ")[:-1])
             self.current.comment = option
             self.events[self.current.date.format()] = self.current
-            if self.current.type == "work":
-                subprocess.run("~/bin/wallpapermanager -n", shell=True)
             self.current = False
         self.write()
 
@@ -162,67 +170,68 @@ class Calendar:
         width, height = get_terminal_size()
         height = 48
         daywidth = width // 7 if width%7 >= 3 else (width // 7) - 1
-        timewidth = width - 7 * daywidth + 1
+        timewidth = width - 7 * daywidth
         timecolumn = [f"{i//2:02d}:00" + " "*(timewidth-5) if (i/2)%3==0 else " "*timewidth for i in range(height)]
-        matrix = [[f' |{"."*(daywidth-4)}| ' for x in range(7)] for y in range(height)]
+        matrix = [[f' |\033[1;36m{"·"*(daywidth-4)}\033[0m| ' for x in range(7)] if (y/2)%3==0 else [f' |{"·"*(daywidth-4)}| ' for x in range(7)] for y in range(height)]
         earliest = 47
         latest = 0
 
-        for event in self.getWeek():
-            if event.comment == "Wochenübertrag":
-                continue
+        def putEvent(matrix, event, earliest, latest):
             time = event.date.format().split(" ")[1]
             ystart = int(time.split(":")[0]) * 2 + (int(time.split(":")[1]) > 30)
+            eventheight = ceil(event.duration/30)
             earliest = min(ystart, earliest)
-            latest = max(latest, ystart+ceil(event.duration/30))
+            latest = max(latest, ystart+eventheight)
             inner = daywidth - 6
             dayoff = 0
             weekday = event.date.time.weekday()
-            for i in range(ceil(event.duration/30)):
+            for i in range(eventheight):
                 if ystart + i == height:
                     dayoff = 1
                     if dayoff + weekday > 6:
                         break
                 earliest = min(earliest, ystart+i - (dayoff * height))
-                if i >= 1 and event.comment != "" and (i-1) * inner <= len(event.comment):
+                matrix[ystart+i - (dayoff * height)][weekday + dayoff] = f'\033[33m |{" "*(daywidth-4)}| \033[0m'
+                if i >= 1 and i + 1 == eventheight:
+                    matrix[ystart+i - (dayoff * height)][weekday + dayoff] = f'\033[33m +{"-"*(daywidth-4)}+ \033[0m'
+                if i >= 1 and event.comment != "" and (i-1) * inner < len(event.comment):
                     matrix[ystart+i - (dayoff * height)][weekday + dayoff] = \
-                        f' | {event.comment[(i-1)*inner:min(len(event.comment),i*inner)]:{inner}s} | '
-                else:
-                    matrix[ystart+i - (dayoff * height)][weekday + dayoff] = f' |{" "*(daywidth-4)}| '
+                        f'\033[33m | {event.comment[(i-1)*inner:min(len(event.comment),i*inner)]:{inner}s} | \033[0m'
             headline = event.type
             headline = f" {headline[:min(len(headline),daywidth-6)]} "
-            matrix[ystart][weekday] = f" +{headline:-^{daywidth-4}s}+ "
-        
-        # current event in calendar view
-        if self.current:
-            cur = self.current.date
-            if cur > Time.weekstart() and cur < Time.weekend():
-                headline = f" {self.current.type[:min(len(self.current.type),daywidth-6)]} "
-                matrix[cur.time.hour * 2 + (cur.time.minute > 30)][cur.time.weekday()] = f" +{headline:-^{daywidth-4}s}+ "
+            matrix[ystart][weekday] = f"\033[33m +{headline:-^{daywidth-4}s}+ \033[0m"
+            return (matrix, earliest, latest)
+
+        for event in self.getWeek(withCurrent=True):
+            if event.comment == "Wochenübertrag":
+                continue
+            matrix, earliest, latest = putEvent(matrix, event, earliest, latest)
+                
 
         earliest = int(earliest/6)*6
         latest = ceil(latest/6)*6
 
         dates = [Time.weekstart().shift(days=x).format(options="dam") for x in range(7)]
-        print(" "*timewidth, end="")
-        for w, d in zip(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], dates):
-            if daywidth >= 18:
-                header = f" {w} {d}"
-            else:
-                header = w
-            print(f"{header:^{daywidth}s}", end="")
-        print()
+        if latest > 0:
+            print(" "*timewidth, end="\033[1;36m")
+            for w, d in zip(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], dates):
+                if daywidth >= 18:
+                    header = f" {w} {d}"
+                else:
+                    header = w
+                print(f"{header:^{daywidth}s}", end="")
+            print("\033[0m")
         for row, data in enumerate(zip(matrix,timecolumn)):
             if row < earliest or row > latest:
                 continue
-            print(data[1], end="")
+            print(f'\033[1;36m{data[1]}\033[0m', end="")
             data[0][-1] = data[0][-1][:-1]
             for it in data[0]:
                 print(it, end="")
             print()
 
     def listview(self):
-        events = self.getWeek()
+        events = self.getWeek(withCurrent=True)
         try:
             previousDay = events[0].date.format().split(' ')[0]
         except:
@@ -236,8 +245,8 @@ class Calendar:
             print(event)
 
     def summaryview(self):
-        week = self.getWeek()
-        month = self.getMonth()
+        week = self.getWeek(withCurrent=True)
+        month = self.getMonth(withCurrent=True)
         weeksums = {k: sum([x.duration for x in week if x.type == k]) for k in self.categories}
         monthsums = {k: sum([x.duration for x in month if x.type == k]) for k in self.categories}
         weeksums["work"] -= self.getOvertime()
