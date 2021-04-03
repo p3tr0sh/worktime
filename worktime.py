@@ -14,25 +14,62 @@ import subprocess
 from timewrapper import Time
 from event import Event
 
+def toMinutes(number, unit):
+    if unit == "h":
+        return int(number) * 60
+    if unit == "m":
+        return int(number)
+
 class Calendar:
 
-    def __init__(self, filename):
+    def __init__(self, confFile):
         self.events = dict()
         self.target = dict()
+        self.weekTarget = 0
+        self.dayTarget = 0
         self.categories = [] # dict with color codes, random color to begin with, choose color
+        self.focus = ""
         self.current = False
 
-        self.filename = filename
-        self.conffile = os.path.join(os.path.dirname(filename), "config.json")
+        self.conffile = confFile
 
         self.read()
 
+    def workPerMonth(self):
+        monthcounter = 0
+        monthid = '0'
+        counterdict = dict()
+        for evt in self.events.values():
+            idd = evt.date.time.format('YYYY-MM')
+            if idd not in counterdict:
+                counterdict[idd] = 0
+            if evt.type == self.focus and not evt.comment == "Wochenübertrag":
+                # print(evt)
+                counterdict[idd] += evt.duration
+        for k, v in counterdict.items():
+            print(k, Time.reformat(v))
+
+    def calculateTartetTime(self):
+        if self.target['type'] == "weekly":
+            
+            self.weekTarget = toMinutes(self.target['amount'], self.target['unit'])
+            self.dayTarget = self.weekTarget / 5
+        elif self.target['type'] == "monthly":
+            workdaysInMonth = Time.monthWorkDays()
+            # simple hack
+            self.weekTarget = toMinutes(self.target['amount'], self.target['unit']) / workdaysInMonth * 5
+            print(Time.reformat(int(self.weekTarget)))
+        exit(0)
+
     def read(self):
-        with open(self.conffile, 'r') as conffile:
+        with open(os.path.expanduser(self.conffile), 'r') as conffile:
             config = json.load(conffile)
+            self.filename = config['name']
             self.target = config['target']
             self.categories = config['categories']
-        with open(self.filename, 'r') as calfile:
+            self.focus = config['focus']
+
+        with open(os.path.expanduser(self.filename), 'r') as calfile:
             cal = json.load(calfile)
             self.current = cal['current']
             if self.current:
@@ -41,13 +78,15 @@ class Calendar:
                 self.events[date] = Event(date, *event)
     
     def write(self):
-        with open(self.conffile, 'w') as conffile:
+        with open(os.path.expanduser(self.conffile), 'w') as conffile:
             obj = dict()
+            obj['name'] = self.filename
             obj['target'] = self.target
             obj['categories'] = self.categories
+            obj['focus'] = self.focus
             json.dump(obj, conffile, indent=2, ensure_ascii=False)
 
-        with open(self.filename, 'w') as calfile:
+        with open(os.path.expanduser(self.filename), 'w') as calfile:
             obj = dict()
             if self.current:
                 obj['current'] = list(self.current.serialize().items())[0]
@@ -76,14 +115,16 @@ class Calendar:
         monthend   = Time.monthend()
         month = []
         for event in self.events.values():
-            if event.date > monthstart and event.date < monthend:
+            if event.date > monthstart and event.date < monthend and not event.comment == "Wochenübertrag":
                 month.append(event)
         if withCurrent and self.current:
             if self.current.date >= monthstart and self.current.date <= monthend:
                 month.append(self.current)
         return sorted(month, key=lambda x: x.date.format())
 
-    def getOvertime(self, focus="work"):
+    def getOvertime(self, focus=""):
+        if focus == "":
+            focus = self.focus
         lastweekend = Time.weekstart().shift(minutes=-1)
         try:
             if self.events[lastweekend.format()].type == focus and self.events[lastweekend.format()].comment == "Wochenübertrag":
@@ -114,10 +155,10 @@ class Calendar:
         self.write()
 
     def bar(self, focus=""):
-        if focus == "":
-            focus = "work"
-            if self.current:
-                focus = self.current.type
+        if self.current:
+            focus = self.current.type
+        else: 
+            focus = self.focus
         weekminutes = 0
 
         weekminutes -= self.getOvertime(focus)
@@ -139,7 +180,7 @@ class Calendar:
 
         weekminutes += now
         dayminutes += now
-        targetReached = weekminutes >= self.target and focus == "work"
+        targetReached = weekminutes >= self.target and focus == self.focus
         print(f"{Time.reformat(weekminutes)}|{Time.reformat(dayminutes)}")
         print(f"{Time.reformat(dayminutes)}")
         if self.current and self.current.type == focus:
@@ -233,7 +274,8 @@ class Calendar:
         month = self.getMonth(withCurrent=True)
         weeksums = {k: sum([x.duration for x in week if x.type == k]) for k in self.categories}
         monthsums = {k: sum([x.duration for x in month if x.type == k]) for k in self.categories}
-        weeksums["work"] -= self.getOvertime()
+        if self.focus in weeksums:
+            weeksums[self.focus] -= self.getOvertime()
         print("WEEK ------------")
         for k, v in weeksums.items():
             v = f"{v//60:02d}:{v%60:02d}"
@@ -284,54 +326,54 @@ class Calendar:
 
 
     def calculateOvertime(self):
-        focus = "work"
         weekminutes = 0
 
         overtime = Time.weekstart().shift(minutes=-1)
         try:
             evt = self.events[overtime.format()]
-            if evt.type == focus and evt.comment == "Wochenübertrag":
+            if evt.type == self.focus and evt.comment == "Wochenübertrag":
                 weekminutes -= evt.duration
         except KeyError:
             pass
 
         for event in self.getWeek():
-            if event.type == focus:
+            if event.type == self.focus:
                 weekminutes += event.duration
 
         for event in self.getDay():
-            if event.type == focus:
+            if event.type == self.focus:
                 if event.comment == "Wochenübertrag":
                     weekminutes += event.duration
         
         now = 0
-        if self.current and self.current.type == focus:
+        if self.current and self.current.type == self.focus:
             now += Time.delta(self.current.date, Time.now())
 
         weekminutes += now
         overtime = self.target - weekminutes
-        event = Event(Time.weekend().format(), focus, overtime, "Wochenübertrag")
+        event = Event(Time.weekend().format(), self.focus, overtime, "Wochenübertrag")
         self.events[event.date.format()] = event
         self.write()
         
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("file")
+    parser = argparse.ArgumentParser(description="Worktime - a script to keep track of the time spent for specific tasks or activities.", epilog="HEAVY Work in Progress. Written by petrosh. Help+Bugs: <worktime@petrosh.de>")
+    parser.add_argument("--config", '-c', default="~/.config/worktime/config.json", help="Configuration file, defaults to ~/.config/worktime/config.json")
     parser.add_argument("--shift", help="format: 'days=-3', 'weeks=5', ...")
     modegroup = parser.add_mutually_exclusive_group()
-    modegroup.add_argument("--toggle", '-t')
-    modegroup.add_argument("--bar", '-b', action='store_true')
-    modegroup.add_argument("--interactive", "-i", action="store_true")
-    modegroup.add_argument("--list", "-l", action="store_true")
+    modegroup.add_argument("--toggle", '-t', type=str, help="Takes one argument, [CATEGORY] to begin a session or [COMMENT] to end the current session.")
+    modegroup.add_argument("--bar", '-b', action='store_true', help="Produces output for a bar like `i3bar`")
+    modegroup.add_argument("--interactive", "-i", action="store_true", help="This opens a rofi to choose a category or make a comment to end a session. Wrapper for --toggle")
+    modegroup.add_argument("--list", "-l", action="store_true", help="View events of the selected week and summaries of the month and week")
     modegroup.add_argument("--edit", "-e", action="store_true")
-    modegroup.add_argument("--overtime", "-o", action="store_true")
+    modegroup.add_argument("--overtime", "-o", action="store_true", help="Calculate overtime hours and create event at end of week. CAUTION: currently under construction")
+    modegroup.add_argument("--workMonth", "-w", action="store_true", help="Currently, there might be some inaccuracies in the monthly view in `--list` so this is just a bug workaround")
     args = parser.parse_args()
 
     if args.shift:
         Time.timeshift = {i[0]: int(i[1]) for i in [j.split("=") for j in args.shift.split(",")]}
 
-    cal = Calendar(args.file)
+    cal = Calendar(args.config)
     
     if args.bar:
         cal.bar()
@@ -347,6 +389,10 @@ if __name__ == "__main__":
 
     if args.overtime:
         cal.calculateOvertime()
+        exit(0)
+
+    if args.workMonth:
+        cal.workPerMonth()
         exit(0)
 
     if args.edit:

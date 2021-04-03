@@ -78,6 +78,17 @@ class Time:
         return Time(monthstart().shift(months=1,minutes=-1))
 
     @staticmethod
+    def monthWorkDays():
+        result = 0
+        runner = Time.monthstart().time
+        end = Time.monthend().time
+        while runner < end:
+            if runner.format("d") not in ["6", "7"]:
+                result += 1
+            runner = runner.shift(days=1)
+        return result
+
+    @staticmethod
     def delta(t1, t2):
         return ceil((t2.time - t1.time).total_seconds() / 60 / 5) * 5
 
